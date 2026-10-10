@@ -149,3 +149,43 @@ test('isScheduled respects weekdays and start/end dates', async () => {
   assert.equal(isScheduled({}, tue), true); // no schedule = every day
   assert.equal(ymd(mon), '2026-10-12');
 });
+
+test('custom counting rules change hold, start position, lean and depth limits', async () => {
+  const { countingRules, formChecks } = await import('../js/exercises.js');
+  const ex = EXERCISES.squat;
+  const custom = { holdMs: 0, minRepMs: 0, startAngle: 150, moveAngle: 140, maxLean: 30, safeLimit: 90 };
+  const c = RepCounter.forExercise(ex, 110, 'custom', custom);
+  // Counts a quick rep with no hold, and 152° now counts as standing.
+  run(c, [152, 130, 105, 130, 152], 100);
+  assert.equal(c.reps, 1);
+  const r = countingRules(ex, { target: 110, level: 'custom', custom });
+  assert.equal(r.maxLean, 30);
+  assert.equal(r.safeLimit, 90);
+  // Custom values are ignored unless the level is custom.
+  assert.equal(countingRules(ex, { target: 110, level: 'strict', custom }).holdMs, 1000);
+  // Out-of-order values are fixed: start above target, safe limit below it.
+  const bad = countingRules(ex, { target: 110, level: 'custom', custom: { startAngle: 100, safeLimit: 115 } });
+  assert.ok(bad.startAngle > 110 && bad.moveAngle > 110 && bad.moveAngle < bad.startAngle);
+  assert.ok(bad.safeLimit < 110);
+  assert.equal(countingRules(ex, { target: 110, level: 'custom', custom: { holdMs: 99999 } }).holdMs, 5000);
+  // Too deep uses the custom limit: 80° is red with safeLimit 90.
+  const lm = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, visibility: 0.1 }));
+  const rad = (80 * Math.PI) / 180;
+  Object.assign(lm, {
+    11: { x: 0.5, y: 0.2, visibility: 0.9 }, 23: { x: 0.5, y: 0.4, visibility: 0.9 }, 25: { x: 0.5, y: 0.6, visibility: 0.9 },
+    27: { x: 0.5 + Math.sin(rad) * 0.2, y: 0.6 - Math.cos(rad) * 0.2, visibility: 0.9 },
+  });
+  assert.equal(formChecks(ex, lm, 1, 1, 110).find((k) => k.ids.length === 3).good, true);
+  assert.equal(formChecks(ex, lm, 1, 1, 110, r).find((k) => k.ids.length === 3).good, false);
+});
+
+test('ages are kept between 1 and 100', async () => {
+  globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  globalThis.sessionStorage ??= globalThis.localStorage;
+  const { cleanAge } = await import('../js/store.js');
+  assert.equal(cleanAge('5'), 5);
+  assert.equal(cleanAge(1), 1);
+  assert.equal(cleanAge(140), 100);
+  assert.equal(cleanAge(0), null);
+  assert.equal(cleanAge(''), null);
+});

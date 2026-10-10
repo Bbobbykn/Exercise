@@ -1,8 +1,8 @@
-import { EXERCISES, exerciseName, measure, formChecks, MAX_TRUNK_LEAN, STRICTNESS, fastCue, Smoother, RepCounter } from './exercises.js';
+import { EXERCISES, exerciseName, measure, formChecks, STRICTNESS, customFields, countingRules, fastCue, Smoother, RepCounter } from './exercises.js';
 import { mountCalendar } from './calendar.js';
 import { parseVideo, videoEmbed } from './video.js';
 import { ALL_DAYS, ymd, addDays, isScheduled, itemsOn, scheduleText } from './schedule.js';
-import { store } from './store.js';
+import { store, cleanAge } from './store.js';
 import { Voice } from './voice.js';
 import { loadPoseModel, startCamera, stopCamera, runDetection, drawPose } from './pose.js';
 
@@ -122,6 +122,24 @@ const fmtAppt = (a) =>
   `${apptDate(a).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}${a.time ? ' · ' + apptDate(a).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''}`;
 const upcoming = (appts) => appts.filter((a) => a.date >= ymd());
 const WEEKDAY_LETTERS = ALL_DAYS.map((d) => new Date(2024, 0, 7 + d).toLocaleDateString(undefined, { weekday: 'narrow' }));
+// Custom counting: one number field per rule (see customFields in exercises.js).
+const rulesToCustom = (ex, item) => {
+  const r = countingRules(ex, item);
+  return Object.fromEntries(customFields(ex).map((f) => [f.key, r[f.key]]));
+};
+const customEditor = (ex, item) => {
+  const r = countingRules(ex, item);
+  return `<fieldset class="custom-rules"><legend>Custom counting rules</legend>
+    <div class="grid2">${customFields(ex).map((f) => `
+      <label>${f.label} (${f.unit})
+        <input type="number" inputmode="decimal" data-c="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${r[f.key] / (f.scale ?? 1)}"></label>`).join('')}
+    </div>
+    <small class="hint">${ex.direction < 0
+      ? 'Order is kept: standing angle above "rep starts", above the target, above "too deep".'
+      : 'Order is kept: seated angle below "rep starts", below the target.'}</small>
+  </fieldset>`;
+};
+
 const targetText = (ex, target) => (ex.direction < 0 ? `Knees to ${target}°` : `Stand to ${target}°`);
 const minutes = (sec) => `${Math.max(1, Math.round(sec / 60))} min`;
 
@@ -345,7 +363,7 @@ function proAddUser(p, go) {
         <input id="uPhoto" type="file" accept="image/*" hidden></label>
       <p id="photoErr" class="error" role="alert"></p>
       <label>Name<input id="uName" required></label>
-      <label>Age<input id="uAge" type="number" min="40" max="120" inputmode="numeric"></label>
+      <label>Age<input id="uAge" type="number" min="1" max="100" inputmode="numeric"></label>
       <label>Phone<input id="uPhone" type="tel" autocomplete="off"></label>
       <label>Notes<textarea id="uNotes" rows="3" placeholder="Health conditions, mobility aids…"></textarea></label>
       <button class="btn dark big" type="submit">Add patient</button>
@@ -492,7 +510,7 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
   const profileForm = `
     <form id="profileForm" class="stack sheet">
       <label>Name<input id="pName" required value="${esc(u.name)}"></label>
-      <label>Age<input id="pAge" type="number" min="40" max="120" inputmode="numeric" value="${esc(u.age ?? '')}"></label>
+      <label>Age<input id="pAge" type="number" min="1" max="100" inputmode="numeric" value="${esc(u.age ?? '')}"></label>
       <label>Phone<input id="pPhone" type="tel" value="${esc(u.phone ?? '')}"></label>
       <label>Notes<textarea id="pNotes" rows="3" placeholder="Health conditions, mobility aids…">${esc(u.notes)}</textarea></label>
       <div class="row"><button class="btn dark" type="submit">Save details</button><button class="btn ghost" type="button" id="cancelEdit">Cancel</button></div>
@@ -563,7 +581,7 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
         e.preventDefault();
         store.updateUser(u.id, {
           name: $('#pName').value.trim() || u.name,
-          age: Number($('#pAge').value) || null,
+          age: cleanAge($('#pAge').value),
           phone: $('#pPhone').value.trim(),
           notes: $('#pNotes').value,
         });
@@ -574,6 +592,17 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
     }
     mountCalendar($('#cal'), s.sessions, { appointments: appts, program: u.program });
 
+    const ex0 = (i) => EXERCISES[draft[i].exerciseId];
+    // Show the rules actually used, after clamping and ordering.
+    const syncCustom = (i) => {
+      if (draft[i].level !== 'custom') return;
+      draft[i].custom = rulesToCustom(ex0(i), draft[i]);
+      const card = $(`#program [data-i="${i}"]`);
+      for (const f of customFields(ex0(i))) {
+        const input = card.querySelector(`[data-c="${f.key}"]`);
+        if (input) input.value = draft[i].custom[f.key] / (f.scale ?? 1);
+      }
+    };
     const renderProgram = () => {
       $('#program').innerHTML = draft.map((item, i) => {
         const ex = EXERCISES[item.exerciseId];
@@ -590,7 +619,9 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
           </div>
           <label>Counting
             <select data-f="level">${Object.entries(STRICTNESS).map(([k, v]) =>
-              `<option value="${k}" ${k === (item.level ?? 'standard') ? 'selected' : ''}>${v.label}: hold ${v.holdMs / 1000}s, at least ${v.minRepMs / 1000}s per rep</option>`).join('')}</select></label>
+              `<option value="${k}" ${k === (item.level ?? 'standard') ? 'selected' : ''}>${v.label}: hold ${v.holdMs / 1000}s, at least ${v.minRepMs / 1000}s per rep</option>`).join('')}
+              <option value="custom" ${item.level === 'custom' ? 'selected' : ''}>Custom: set each rule yourself</option></select></label>
+          ${item.level === 'custom' ? customEditor(ex, item) : ''}
           <fieldset class="days"><legend>Days</legend>
             ${ALL_DAYS.map((d) => `<button type="button" class="day-chip" data-day="${d}" aria-pressed="${days.includes(d)}" aria-label="${dayName(new Date(2024, 0, 7 + d), true)}">${WEEKDAY_LETTERS[d]}</button>`).join('')}
           </fieldset>
@@ -612,12 +643,18 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
           if (f === 'exerciseId') {
             draft[i].exerciseId = el.value;
             draft[i].target = EXERCISES[el.value].defaultTarget;
+            draft[i].custom = draft[i].level === 'custom' ? rulesToCustom(EXERCISES[el.value], { ...draft[i], level: 'standard' }) : null;
             renderProgram();
           } else if (f === 'video') {
             const ok = !el.value.trim() || parseVideo(el.value);
             draft[i].video = ok ? el.value.trim() : draft[i].video;
             $(`[data-err="${i}"]`).textContent = ok ? '' : 'That link does not look like a video. Paste a YouTube, Vimeo or .mp4 link.';
-          } else if (f === 'level' || f === 'startDate' || f === 'endDate') {
+          } else if (f === 'level') {
+            // Start custom rules from whatever the item was counting with.
+            if (el.value === 'custom' && !draft[i].custom) draft[i].custom = rulesToCustom(ex0(i), draft[i]);
+            draft[i].level = el.value;
+            renderProgram();
+          } else if (f === 'startDate' || f === 'endDate') {
             draft[i][f] = el.value;
           } else {
             const ex = EXERCISES[draft[i].exerciseId];
@@ -625,7 +662,21 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
             const v = Math.min(hi, Math.max(lo, Math.round(Number(el.value) || lo)));
             draft[i][f] = v;
             el.value = v;
+            if (f === 'target') syncCustom(i);
           }
+          $('#saved').textContent = '';
+        };
+      });
+      $$('#program [data-c]').forEach((el) => {
+        el.onchange = () => {
+          const i = Number(el.closest('[data-i]').dataset.i);
+          const field = customFields(ex0(i)).find((c) => c.key === el.dataset.c);
+          const n = Number(el.value);
+          if (el.value !== '' && !Number.isNaN(n)) {
+            const v = Math.min(field.max, Math.max(field.min, n));
+            draft[i].custom = { ...draft[i].custom, [field.key]: Math.round(v * (field.scale ?? 1)) };
+          }
+          syncCustom(i);
           $('#saved').textContent = '';
         };
       });
@@ -899,7 +950,8 @@ function exerciseScreen(uidv, item) {
 
   const video = $('#video'), canvas = $('#canvas'), status = $('#status');
   let facing = 'user', stream = null, stopDetect = null;
-  let counter = RepCounter.forExercise(ex, target, item.level);
+  const rules = countingRules(ex, item);
+  let counter = RepCounter.forExercise(ex, target, item.level, item.custom);
   const smoother = new Smoother();
   let set = 1, totalReps = 0, totalPartials = 0, resting = false, finished = false;
   let lostSince = null, restTimer = null;
@@ -953,7 +1005,7 @@ function exerciseScreen(uidv, item) {
     const w = video.videoWidth, h = video.videoHeight;
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     const mirrored = facing === 'user';
-    const checks = formChecks(ex, landmarks, w, h, target);
+    const checks = formChecks(ex, landmarks, w, h, target, rules);
     drawPose(canvas, landmarks, { checks, mirrored });
     const formOk = checks.length ? checks.every((c) => c.good) : null;
     $('#form').className = 'form-ind ' + (formOk == null ? '' : formOk ? 'g' : 'r');
@@ -974,15 +1026,15 @@ function exerciseScreen(uidv, item) {
     lostSince = null;
     const a = smoother.next(m.angle);
     if (resting || finished) return;
-    const leaning = ex.checkTrunk && m.lean > MAX_TRUNK_LEAN;
-    const tooDeep = ex.safeLimit != null && (ex.direction < 0 ? a < ex.safeLimit : a > ex.safeLimit);
+    const leaning = ex.checkTrunk && m.lean > rules.maxLean;
+    const tooDeep = rules.safeLimit != null && (ex.direction < 0 ? a < rules.safeLimit : a > rules.safeLimit);
     if (counter.state === 'start') formIssue = null;
     if (tooDeep) formIssue = 'deep';
     else if (leaning) formIssue ??= 'lean';
     counter.update(a, Date.now(), !(leaning || tooDeep)).forEach(handle);
     if (tooDeep) feedback('That is deep enough. Do not go lower.', { tone: 'warn' });
     if (counter.state === 'waiting') feedback(ex.cues.waiting, { tone: 'warn' });
-    else if (ex.checkTrunk && counter.state !== 'start' && m.lean > MAX_TRUNK_LEAN) feedback('Keep your chest up.', { tone: 'warn' });
+    else if (ex.checkTrunk && counter.state !== 'start' && leaning) feedback('Keep your chest up.', { tone: 'warn' });
   };
 
   const completeSet = () => {
@@ -1004,7 +1056,7 @@ function exerciseScreen(uidv, item) {
     clearInterval(restTimer);
     $('#rest').hidden = true;
     set++;
-    counter = RepCounter.forExercise(ex, target, item.level);
+    counter = RepCounter.forExercise(ex, target, item.level, item.custom);
     showReps();
     $('#setLabel').textContent = `${set}/${item.sets}`;
     resting = false;

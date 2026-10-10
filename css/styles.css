@@ -387,3 +387,7 @@ img.avatar { object-fit: cover; padding: 0; background: var(--line); }
   .card.tall { min-height: 270px; }
   .tabbar button { width: 56px; height: 56px; }
 }
+
+/* Custom counting rules in the plan editor */
+.custom-rules { border: 1.5px dashed rgba(17, 17, 20, 0.2); border-radius: 16px; padding: 10px 12px 12px; margin: 0; display: grid; gap: 8px; }
+.custom-rules legend { font-weight: 600; padding: 0 4px; }

@@ -13,12 +13,12 @@ A mobile-first web app that helps older adults exercise safely. The phone camera
 - Patients progress page: every patient on one page with their photo, plan done in the last 7 days (progress bar), which days they exercised, reps, full-range % and best squat. Sort by "Needs attention" or A–Z. Tapping a photo or name opens that patient's profile.
 - Patient photos: add one when creating a patient, or tap the photo on their profile to change it (stored on the device, shrunk to 256 px).
 - List of users with last exercised, sessions completed this week and % of full-range reps.
-- Add a user (name, age, notes); the app gives them a login code.
+- Add a user (name, age 1-100, notes); the app gives them a login code.
 - Pastel card design with a dark pill tab bar (Users, Add user, Profile).
 - Patient profile (name, age, phone, notes, photo) is added and edited by the practitioner only; patients see it read-only.
 - Plan ahead: each exercise has its weekdays, a start date and an optional end date, plus a "Next 2 weeks" preview on the patient page. Patients only see the exercises planned for today, with a "Coming up" list.
 - Check-ups: practitioners book appointments (date, time, place, what it's for). Patients see the next check-up on their home screen, in their profile and on the calendar; practitioners see upcoming check-ups across all patients on their home screen.
-- Counting strictness per exercise (Gentle / Standard / Strict).
+- Counting strictness per exercise (Gentle / Standard / Strict), or **Custom** to set each counting rule yourself: hold time at the target, minimum time per rep, the start position angle, the angle where a rep begins, and for squats the maximum forward lean and the "too deep" limit. Angles are kept in a sensible order (for squats: standing > rep starts > target > too deep).
 - Per user: edit the program (exercise, sets, reps, target angle and an optional instruction video link: YouTube, Vimeo or .mp4), notes, a workout calendar, and session history (reps, partial reps, best angle, time).
 
 **User side**
@@ -45,7 +45,7 @@ A rep only counts when the person starts from the proper position (fully standin
 | Standard (default) | 0.6 s | 2 s |
 | Strict | 1 s | 3 s |
 
-For sit-to-stand the minimum time applies to the way up, so it is halved.
+For sit-to-stand the minimum time applies to the way up, so it is halved. With **Custom** counting the practitioner sets each of these numbers (and the angles) per exercise.
 
 **Spoken feedback** (browser speech, mute button on screen): "Stand up tall to begin", "Good, now slowly bend your knees", "Try to bend a little lower", "Try to stand up all the way", "Keep your chest up" (squats, if leaning over 50°), "Step back so I can see your whole body", rep counts, "One more!", "Nice and slow" for rushed reps, set complete / rest / get ready, and a well done at the end.
 

@@ -50,6 +50,7 @@ function migrate(data) {
       it.level ??= 'standard';
       it.startDate ??= '';
       it.endDate ??= '';
+      it.custom ??= null;
     }
   }
   return data;
@@ -77,6 +78,12 @@ function save() {
   }
 }
 save();
+
+// Ages 1-100; anything else is left blank.
+export const cleanAge = (v) => {
+  const n = Math.round(Number(v));
+  return n >= 1 ? Math.min(100, n) : null;
+};
 
 export const store = {
   // Practitioners
@@ -108,7 +115,7 @@ export const store = {
     let code;
     do code = String(Math.floor(1000 + Math.random() * 9000));
     while (db.users.some((u) => u.code === code));
-    const u = { id: uid(), practitionerId, name: name.trim(), age: Number(age) || null, phone: phone ?? '', notes: notes ?? '', code, program: [] };
+    const u = { id: uid(), practitionerId, name: name.trim(), age: cleanAge(age), phone: phone ?? '', notes: notes ?? '', code, program: [] };
     db.users.push(u);
     save();
     return u;

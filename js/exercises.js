@@ -75,6 +75,63 @@ export const STRICTNESS = {
   standard: { label: 'Standard', holdMs: 600, minRepMs: 2000 },
   strict: { label: 'Strict', holdMs: 1000, minRepMs: 3000 },
 };
+
+// Every counting rule for one plan item. Presets fill in hold and rep time;
+// with level 'custom' the practitioner sets each rule (item.custom) and
+// anything left blank falls back to the Standard preset and exercise default.
+export function customFields(exercise) {
+  const down = exercise.direction < 0;
+  const f = [
+    { key: 'holdMs', label: 'Hold at target', unit: 's', min: 0, max: 5, step: 0.1, scale: 1000 },
+    { key: 'minRepMs', label: 'Minimum time per rep', unit: 's', min: 0, max: 10, step: 0.5, scale: 1000 },
+    down
+      ? { key: 'startAngle', label: 'Standing tall from', unit: '°', min: 140, max: 180, step: 1 }
+      : { key: 'startAngle', label: 'Seated at or below', unit: '°', min: 80, max: 135, step: 1 },
+    down
+      ? { key: 'moveAngle', label: 'Rep starts below', unit: '°', min: 100, max: 175, step: 1 }
+      : { key: 'moveAngle', label: 'Rep starts above', unit: '°', min: 90, max: 165, step: 1 },
+  ];
+  if (exercise.checkTrunk) f.push({ key: 'maxLean', label: 'Max forward lean', unit: '°', min: 10, max: 90, step: 1 });
+  if (exercise.safeLimit != null) f.push({ key: 'safeLimit', label: 'Too deep below', unit: '°', min: 30, max: 120, step: 1 });
+  return f;
+}
+
+export function countingRules(exercise, item = {}) {
+  const d = exercise.direction;
+  const [tLo, tHi] = exercise.targetRange;
+  const target = Math.min(tHi, Math.max(tLo, Number(item.target) || exercise.defaultTarget));
+  const preset = STRICTNESS[item.level] ?? STRICTNESS.standard;
+  const r = {
+    target,
+    holdMs: preset.holdMs,
+    minRepMs: preset.minRepMs,
+    startAngle: exercise.startAngle,
+    moveAngle: exercise.moveAngle,
+    maxLean: exercise.checkTrunk ? MAX_TRUNK_LEAN : null,
+    safeLimit: exercise.safeLimit ?? null,
+  };
+  if (item.level === 'custom' && item.custom) {
+    for (const f of customFields(exercise)) {
+      const v = Number(item.custom[f.key]);
+      if (item.custom[f.key] == null || item.custom[f.key] === '' || Number.isNaN(v)) continue;
+      const scale = f.scale ?? 1;
+      r[f.key] = Math.min(f.max * scale, Math.max(f.min * scale, v));
+    }
+  }
+  // Keep the angles in a sensible order: start, then "moving", then target,
+  // then the safe limit (falling for squats, rising for sit-to-stand).
+  if (d < 0) {
+    r.startAngle = Math.max(r.startAngle, target + 2);
+    r.moveAngle = Math.min(Math.max(r.moveAngle, target + 1), r.startAngle - 1);
+    if (r.safeLimit != null) r.safeLimit = Math.min(r.safeLimit, target - 1);
+  } else {
+    r.startAngle = Math.min(r.startAngle, target - 2);
+    r.moveAngle = Math.max(Math.min(r.moveAngle, target - 1), r.startAngle + 1);
+    if (r.safeLimit != null) r.safeLimit = Math.max(r.safeLimit, target + 1);
+  }
+  return r;
+}
+
 export const fastCue = 'Too fast. Go slowly, that one did not count.';
 
 export function exerciseName(id) {
@@ -160,16 +217,16 @@ export class RepCounter {
     this.badForm = false;
   }
 
-  static forExercise(exercise, target, level = 'standard') {
-    const strict = STRICTNESS[level] ?? STRICTNESS.standard;
+  static forExercise(exercise, target, level = 'standard', custom = null) {
+    const r = countingRules(exercise, { target, level, custom });
     return new RepCounter({
       direction: exercise.direction,
-      startAngle: exercise.startAngle,
-      moveAngle: exercise.moveAngle,
-      goalAngle: target ?? exercise.defaultTarget,
+      startAngle: r.startAngle,
+      moveAngle: r.moveAngle,
+      goalAngle: r.target,
       countAt: exercise.countAt,
-      holdMs: strict.holdMs,
-      minRepMs: strict.minRepMs,
+      holdMs: r.holdMs,
+      minRepMs: r.minRepMs,
     });
   }
 
@@ -254,9 +311,9 @@ export class RepCounter {
 // Squats also check the trunk is not leaning too far forward.
 export const MAX_TRUNK_LEAN = 50;
 
-export function formChecks(exercise, landmarks, width, height, target, minVisibility = 0.5) {
+export function formChecks(exercise, landmarks, width, height, target, rules = countingRules(exercise, { target }), minVisibility = 0.5) {
   if (!landmarks) return [];
-  const goal = target ?? exercise.defaultTarget;
+  const goal = rules.target;
   const d = exercise.direction;
   const checks = [];
   for (const side of ['left', 'right']) {
@@ -266,15 +323,15 @@ export function formChecks(exercise, landmarks, width, height, target, minVisibi
     if (pts.some((p) => !p || (p.visibility ?? 1) < minVisibility)) continue;
     const a = jointAngle(pts[0], pts[1], pts[2], width, height);
     if (Number.isNaN(a)) continue;
-    const atStart = d < 0 ? a >= exercise.startAngle : a <= exercise.startAngle;
+    const atStart = d < 0 ? a >= rules.startAngle : a <= rules.startAngle;
     const atGoal = d < 0 ? a <= goal : a >= goal;
-    const tooFar = exercise.safeLimit != null && (d < 0 ? a < exercise.safeLimit : a > exercise.safeLimit);
+    const tooFar = rules.safeLimit != null && (d < 0 ? a < rules.safeLimit : a > rules.safeLimit);
     checks.push({ ids, good: (atStart || atGoal) && !tooFar });
 
     if (exercise.checkTrunk) {
       const sh = landmarks[idx.shoulder], hip = landmarks[idx.hip];
       if ((sh.visibility ?? 1) >= minVisibility) {
-        checks.push({ ids: [idx.shoulder, idx.hip], good: trunkLean(sh, hip, width, height) <= MAX_TRUNK_LEAN });
+        checks.push({ ids: [idx.shoulder, idx.hip], good: trunkLean(sh, hip, width, height) <= (rules.maxLean ?? MAX_TRUNK_LEAN) });
       }
     }
   }
