@@ -3,7 +3,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EXERCISES, RepCounter, jointAngle, trunkLean } from '../js/exercises.js';
 
-const feed = (counter, angles) => angles.flatMap((a, i) => counter.update(a, i * 100));
 const types = (events) => events.map((e) => e.type);
 
 test('jointAngle measures right angles and straight lines', () => {
@@ -16,43 +15,94 @@ test('trunkLean is 0 upright and 45 when leaning diagonally', () => {
   assert.equal(Math.round(trunkLean({ x: 0.8, y: 0.2 }, { x: 0.5, y: 0.5 })), 45);
 });
 
-test('squat counts a rep after going deep enough and standing back up', () => {
-  const c = RepCounter.forExercise(EXERCISES.squat, 110);
-  const ev = feed(c, [175, 170, 150, 130, 108, 105, 130, 165, 172]);
-  assert.deepEqual(types(ev), ['ready', 'goal', 'returned', 'rep']);
+// Feeds one angle per step of `ms` milliseconds. `form` can mark frames as bad form.
+const run = (counter, angles, ms = 300, form = () => true) =>
+  angles.flatMap((a, i) => counter.update(a, i * ms, form(i)));
+const squat = (level = 'standard') => RepCounter.forExercise(EXERCISES.squat, 110, level);
+const sts = (level = 'standard') => RepCounter.forExercise(EXERCISES.sitToStand, 160, level);
+// A slow, controlled squat: stand, lower, hold at the bottom, rise.
+const GOOD_SQUAT = [175, 170, 150, 130, 108, 105, 105, 105, 105, 130, 150, 170, 172];
+
+test('squat counts a slow rep that reaches depth and holds it', () => {
+  const c = squat();
+  const ev = run(c, GOOD_SQUAT);
+  assert.deepEqual(types(ev), ['ready', 'holding', 'goal', 'returned', 'rep']);
   assert.equal(c.reps, 1);
-  assert.equal(c.partials, 0);
   assert.equal(ev.at(-1).extreme, 105);
 });
 
-test('squat that is too shallow is a partial, not a rep', () => {
-  const c = RepCounter.forExercise(EXERCISES.squat, 110);
-  feed(c, [175, 140, 125, 140, 170]);
+test('squat that is too shallow does not count', () => {
+  const c = squat();
+  const ev = run(c, [175, 140, 125, 120, 125, 140, 170]);
   assert.equal(c.reps, 0);
-  assert.equal(c.partials, 1);
+  assert.equal(ev.find((e) => e.type === 'partial').reason, 'shallow');
 });
 
-test('nothing counts until the user starts in position', () => {
-  const c = RepCounter.forExercise(EXERCISES.squat, 110);
-  assert.deepEqual(feed(c, [100, 100, 130]), []);
+test('touching depth without holding it does not count', () => {
+  const c = squat();
+  const ev = run(c, [175, 150, 130, 108, 130, 150, 170, 172, 172, 172]);
+  assert.equal(c.reps, 0);
+  assert.equal(ev.find((e) => e.type === 'partial').reason, 'nohold');
+});
+
+test('a rushed squat does not count', () => {
+  const c = squat('gentle'); // gentle: hold 300 ms, at least 1.5 s per rep
+  const ev = run(c, [175, 140, 105, 105, 105, 140, 170], 150);
+  assert.equal(c.reps, 0);
+  assert.equal(ev.find((e) => e.type === 'partial').reason, 'fast');
+});
+
+test('leaning too far during the rep does not count', () => {
+  const c = squat();
+  const ev = run(c, GOOD_SQUAT, 300, (i) => i !== 6);
+  assert.equal(c.reps, 0);
+  assert.equal(ev.find((e) => e.type === 'partial').reason, 'form');
+});
+
+test('stepping out of view cancels the rep in progress', () => {
+  const c = squat();
+  run(c, [175, 150, 120]);
+  c.interrupt();
+  run(c, [105, 105, 105, 105, 130, 170]); // must first stand tall again
+  assert.equal(c.reps, 0);
+  assert.equal(c.state, 'start');
+});
+
+test('half standing is not the start position for squats', () => {
+  const c = squat();
+  assert.deepEqual(run(c, [150, 160, 162]), []);
   assert.equal(c.state, 'waiting');
 });
 
-test('sit to stand counts on standing and needs to sit before the next rep', () => {
-  const c = RepCounter.forExercise(EXERCISES.sitToStand, 160);
-  feed(c, [95, 100, 140, 165, 170]);
-  assert.equal(c.reps, 1);
-  feed(c, [170, 168, 165]); // still standing: no double count
-  assert.equal(c.reps, 1);
-  feed(c, [130, 100, 145, 168]);
-  assert.equal(c.reps, 2);
+test('nothing counts until the user starts in position', () => {
+  const c = squat();
+  assert.deepEqual(run(c, [100, 100, 130]), []);
+  assert.equal(c.state, 'waiting');
 });
 
-test('sit to stand that does not fully stand is a partial', () => {
-  const c = RepCounter.forExercise(EXERCISES.sitToStand, 160);
-  feed(c, [95, 140, 150, 110]);
+test('strict needs a longer hold than standard', () => {
+  const hold3 = [175, 150, 130, 105, 105, 105, 130, 150, 160, 170]; // ~600 ms at depth
+  const std = squat(); run(std, hold3);
+  const strict = squat('strict'); run(strict, hold3);
+  assert.equal(std.reps, 1);
+  assert.equal(strict.reps, 0);
+});
+
+test('sit to stand counts on standing tall and needs to sit before the next rep', () => {
+  const c = sts();
+  const up = [95, 100, 120, 140, 162, 165, 168, 168];
+  run(c, [...up, 170, 168, 165], 500); // keeps standing: no double count
+  assert.equal(c.reps, 1);
+  const c2 = sts();
+  run(c2, [...up, 168, 140, 110, 100, 120, 140, 162, 165, 168, 168], 500);
+  assert.equal(c2.reps, 2);
+});
+
+test('sit to stand that does not fully stand does not count', () => {
+  const c = sts();
+  const ev = run(c, [95, 140, 150, 150, 130, 110]);
   assert.equal(c.reps, 0);
-  assert.equal(c.partials, 1);
+  assert.equal(ev.find((e) => e.type === 'partial').reason, 'shallow');
 });
 
 test('formChecks: knee green standing and at depth, red in between or too deep', async () => {
@@ -86,4 +136,16 @@ test('parseVideo understands YouTube, Vimeo and video files', async () => {
   assert.equal(parseVideo('https://example.com/squat.mp4').kind, 'file');
   assert.equal(parseVideo('javascript:alert(1)'), null);
   assert.equal(parseVideo(''), null);
+});
+
+test('isScheduled respects weekdays and start/end dates', async () => {
+  const { isScheduled, ymd } = await import('../js/schedule.js');
+  const mon = new Date(2026, 9, 12), tue = new Date(2026, 9, 13); // Mon 12 Oct, Tue 13 Oct 2026
+  const item = { days: [1, 3, 5], startDate: '2026-10-12', endDate: '2026-10-30' };
+  assert.equal(isScheduled(item, mon), true);
+  assert.equal(isScheduled(item, tue), false);
+  assert.equal(isScheduled({ ...item, startDate: '2026-10-19' }, mon), false);
+  assert.equal(isScheduled({ ...item, endDate: '2026-10-11' }, mon), false);
+  assert.equal(isScheduled({}, tue), true); // no schedule = every day
+  assert.equal(ymd(mon), '2026-10-12');
 });

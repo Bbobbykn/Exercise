@@ -1,6 +1,7 @@
-import { EXERCISES, exerciseName, measure, formChecks, MAX_TRUNK_LEAN, Smoother, RepCounter } from './exercises.js';
+import { EXERCISES, exerciseName, measure, formChecks, MAX_TRUNK_LEAN, STRICTNESS, fastCue, Smoother, RepCounter } from './exercises.js';
 import { mountCalendar } from './calendar.js';
 import { parseVideo, videoEmbed } from './video.js';
+import { ALL_DAYS, ymd, addDays, isScheduled, itemsOn, scheduleText } from './schedule.js';
 import { store } from './store.js';
 import { Voice } from './voice.js';
 import { loadPoseModel, startCamera, stopCamera, runDetection, drawPose } from './pose.js';
@@ -115,6 +116,12 @@ function ago(iso) {
   const days = Math.max(1, Math.round((Date.now() - new Date(iso)) / DAY));
   return days <= 1 ? 'Yesterday' : `${days} days ago`;
 }
+const dayName = (d, long = false) => new Date(d).toLocaleDateString(undefined, { weekday: long ? 'long' : 'short' });
+const apptDate = (a) => new Date(`${a.date}T${a.time || '00:00'}`);
+const fmtAppt = (a) =>
+  `${apptDate(a).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}${a.time ? ' · ' + apptDate(a).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''}`;
+const upcoming = (appts) => appts.filter((a) => a.date >= ymd());
+const WEEKDAY_LETTERS = ALL_DAYS.map((d) => new Date(2024, 0, 7 + d).toLocaleDateString(undefined, { weekday: 'narrow' }));
 const targetText = (ex, target) => (ex.direction < 0 ? `Knees to ${target}°` : `Stand to ${target}°`);
 const minutes = (sec) => `${Math.max(1, Math.round(sec / 60))} min`;
 
@@ -126,8 +133,9 @@ function userStats(userId) {
   const days = [...Array(7)].map((_, i) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6 + i));
   const doneKeys = new Set(sessions.filter((x) => x.completed).map((x) => `${new Date(x.date).toDateString()}|${x.programItemId}`));
   const doneDays = new Set(sessions.filter((x) => x.completed).map((x) => new Date(x.date).toDateString()));
-  const planned = program.length * 7;
-  const planDone = days.reduce((n, d) => n + program.filter((it) => doneKeys.has(`${d.toDateString()}|${it.id}`)).length, 0);
+  // Plan %: of the exercises scheduled in the last 7 days, how many were finished that day.
+  const planned = days.reduce((n, d) => n + itemsOn(program, d).length, 0);
+  const planDone = days.reduce((n, d) => n + itemsOn(program, d).filter((it) => doneKeys.has(`${d.toDateString()}|${it.id}`)).length, 0);
   const week = sessions.filter((s) => Date.now() - new Date(s.date) < 7 * DAY);
   const reps = week.reduce((n, s) => n + s.reps, 0);
   const partials = week.reduce((n, s) => n + s.partials, 0);
@@ -145,15 +153,17 @@ function userStats(userId) {
   };
 }
 
-// Sun-Sat chips for this week; a dot marks days with a finished workout.
-function weekStrip(sessions) {
+// Sun-Sat chips for this week: a filled dot marks a finished workout,
+// a hollow dot a day with exercises planned.
+function weekStrip(sessions, program = []) {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
   const doneDays = new Set(sessions.filter((s) => s.completed).map((s) => new Date(s.date).toDateString()));
   return `<div class="week">${[...Array(7)].map((_, i) => {
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
     const today = d.toDateString() === now.toDateString();
-    return `<div class="day ${today ? 'today' : ''}"><i class="${doneDays.has(d.toDateString()) ? 'on' : ''}"></i>
+    const dot = doneDays.has(d.toDateString()) ? 'on' : itemsOn(program, d).length ? 'planned' : '';
+    return `<div class="day ${today ? 'today' : ''}"><i class="${dot}"></i>
       <small>${d.toLocaleDateString(undefined, { weekday: 'short' })}</small><b>${d.getDate()}</b></div>`;
   }).join('')}</div>`;
 }
@@ -297,6 +307,7 @@ function proApp(pid, tab = 'home') {
       <div class="faces">${users.slice(0, 3).map((u) => avatarOf(u)).join('')}${users.length > 3 ? `<span class="avatar more">+${users.length - 3}</span>` : ''}</div>
       <button class="btn dark" id="toProgress">See everyone's progress</button>
     </section>
+    ${apptList(upcoming(store.appointmentsFor(pid)).slice(0, 5), { showPatient: true, title: 'Upcoming check-ups' })}
     <h2 class="section-title">Patients</h2>
     <div class="stack">${cards || '<p class="empty">No patients yet. Tap + to add one.</p>'}</div>
     ${tabbar(PRO_TABS, 'home')}
@@ -306,6 +317,19 @@ function proApp(pid, tab = 'home') {
     $('#toProgress').onclick = () => go('progress');
     $$('[data-user]').forEach((b) => (b.onclick = () => userDetail(pid, b.dataset.user)));
   });
+}
+
+// Check-up appointments as list rows. showPatient adds the patient's photo
+// and name (and makes the row open their profile); canDelete adds a remove button.
+function apptList(appts, { showPatient = false, canDelete = false, title = '' } = {}) {
+  if (!appts.length) return title && !showPatient ? `<h2 class="section-title">${title}</h2><p class="empty">No check-ups booked.</p>` : '';
+  return `${title ? `<h2 class="section-title">${title}</h2>` : ''}<div class="list">${appts.map((a) => {
+    const u = store.user(a.userId);
+    const lead = showPatient ? avatarOf(u, 'sm') : icon('calendar');
+    const body = `<span><b>${showPatient ? esc(u?.name ?? '') + ' · ' : ''}${fmtAppt(a)}</b><small>${esc([a.place, a.note].filter(Boolean).join(' · ') || 'Check-up')}</small></span>`;
+    if (showPatient) return `<button class="list-row" data-user="${a.userId}">${lead}${body}${icon('right', 20)}</button>`;
+    return `<div class="list-row">${lead}${body}${canDelete ? `<button class="link danger-text" data-del-appt="${a.id}">Cancel</button>` : ''}</div>`;
+  }).join('')}</div>`;
 }
 
 function proAddUser(p, go) {
@@ -322,6 +346,7 @@ function proAddUser(p, go) {
       <p id="photoErr" class="error" role="alert"></p>
       <label>Name<input id="uName" required></label>
       <label>Age<input id="uAge" type="number" min="40" max="120" inputmode="numeric"></label>
+      <label>Phone<input id="uPhone" type="tel" autocomplete="off"></label>
       <label>Notes<textarea id="uNotes" rows="3" placeholder="Health conditions, mobility aids…"></textarea></label>
       <button class="btn dark big" type="submit">Add patient</button>
     </form>
@@ -342,7 +367,7 @@ function proAddUser(p, go) {
     };
     $('#addForm').onsubmit = (e) => {
       e.preventDefault();
-      const u = store.addUser(p.id, { name: $('#uName').value, age: $('#uAge').value, notes: $('#uNotes').value });
+      const u = store.addUser(p.id, { name: $('#uName').value, age: $('#uAge').value, phone: $('#uPhone').value, notes: $('#uNotes').value });
       if (photo) store.updateUser(u.id, { photo });
       userDetail(p.id, u.id);
     };
@@ -431,17 +456,47 @@ function proProgress(p, go, sort = 'attention') {
   });
 }
 
-function userDetail(pid, uidv, from = 'home') {
+function userDetail(pid, uidv, from = 'home', editing = false) {
   const u = store.user(uidv);
   if (!u) return proApp(pid, from);
   let draft = structuredClone(u.program);
   const s = userStats(u.id);
+  const appts = store.appointmentsOf(u.id);
+  const reopen = (edit = false) => userDetail(pid, u.id, from, edit);
 
   const history = s.sessions.slice(0, 20).map((x) => listRow(
     'activity',
     `${esc(exerciseName(x.exerciseId))}${x.completed ? '' : ' <span class="pill warn">Stopped</span>'}`,
-    `${fmtDate(x.date)} · ${x.reps}/${x.targetSets * x.targetReps} reps · ${x.partials} partial · best ${x.bestAngle != null ? Math.round(x.bestAngle) + '°' : '–'} · ${minutes(x.durationSec)}`,
+    `${fmtDate(x.date)} · ${x.reps}/${x.targetSets * x.targetReps} reps · ${x.partials} not counted · best ${x.bestAngle != null ? Math.round(x.bestAngle) + '°' : '–'} · ${minutes(x.durationSec)}`,
   )).join('');
+
+  // The next two weeks, day by day: planned exercises and check-ups.
+  const ahead = [...Array(14)].map((_, i) => {
+    const d = addDays(new Date(), i);
+    const items = itemsOn(u.program, d);
+    const dayAppts = appts.filter((a) => a.date === ymd(d));
+    if (!items.length && !dayAppts.length) return '';
+    return `<div class="ahead-row ${i === 0 ? 'today' : ''}">
+      <span class="ahead-day"><b>${i === 0 ? 'Today' : dayName(d)}</b><small>${d.getDate()}</small></span>
+      <span class="ahead-items">${items.map((it, k) => `<span class="pill ${tint(u.program.indexOf(it))}">${exerciseName(it.exerciseId)} ${it.sets}×${it.reps}</span>`).join('')}
+        ${dayAppts.map((a) => `<span class="pill appt">Check-up ${a.time ? esc(a.time) : ''}</span>`).join('')}</span>
+    </div>`;
+  }).join('');
+
+  const profileView = `
+    <div class="list details">
+      ${listRow('user', 'Age', u.age ? esc(u.age) + ' years old' : 'Not set')}
+      ${listRow('note', 'Phone', esc(u.phone || 'Not set'))}
+      ${listRow('activity', 'Notes', esc(u.notes || 'None'))}
+    </div>`;
+  const profileForm = `
+    <form id="profileForm" class="stack sheet">
+      <label>Name<input id="pName" required value="${esc(u.name)}"></label>
+      <label>Age<input id="pAge" type="number" min="40" max="120" inputmode="numeric" value="${esc(u.age ?? '')}"></label>
+      <label>Phone<input id="pPhone" type="tel" value="${esc(u.phone ?? '')}"></label>
+      <label>Notes<textarea id="pNotes" rows="3" placeholder="Health conditions, mobility aids…">${esc(u.notes)}</textarea></label>
+      <div class="row"><button class="btn dark" type="submit">Save details</button><button class="btn ghost" type="button" id="cancelEdit">Cancel</button></div>
+    </form>`;
 
   show(`
     ${backHeader('Patient')}
@@ -453,9 +508,15 @@ function userDetail(pid, uidv, from = 'home') {
     </div>
     <div class="tiles">
       ${tile('Last exercised', ago(s.last), 'green')}
-      ${tile('Done this week', s.weekCompleted, 'cyan')}
+      ${tile('Plan done, 7 days', s.planPct != null ? s.planPct + '%' : '–', 'cyan')}
       ${tile('Full-range reps', s.quality != null ? s.quality + '%' : '–', 'orange')}
     </div>
+
+    <div class="row between"><h2 class="section-title">Profile</h2>${editing ? '' : '<button class="btn ghost" id="editProfile">Edit</button>'}</div>
+    ${editing ? profileForm : profileView}
+
+    <h2 class="section-title">Next 2 weeks</h2>
+    <div class="ahead sheet">${ahead || '<p class="empty">Nothing planned. Add exercises below and choose their days.</p>'}</div>
 
     <h2 class="section-title">Plan</h2>
     <div id="program" class="stack"></div>
@@ -465,15 +526,23 @@ function userDetail(pid, uidv, from = 'home') {
     </div>
     <p id="saved" class="ok" role="status"></p>
 
+    ${apptList(upcoming(appts), { canDelete: true, title: 'Check-ups' })}
+    <form id="apptForm" class="sheet stack appt-form">
+      <b>Book a check-up</b>
+      <div class="grid2">
+        <label>Date<input id="aDate" type="date" min="${ymd()}" required></label>
+        <label>Time<input id="aTime" type="time" required value="10:00"></label>
+      </div>
+      <label>Place<input id="aPlace" placeholder="Clinic, room 2"></label>
+      <label>What it's for<input id="aNote" placeholder="Review progress"></label>
+      <button class="btn dark" type="submit">${icon('plus', 20)} Add check-up</button>
+    </form>
+
     <h2 class="section-title">Calendar</h2>
     <section class="sheet" id="cal"></section>
 
     <h2 class="section-title">History</h2>
     <div class="list">${history || '<p class="empty">No sessions yet.</p>'}</div>
-
-    <h2 class="section-title">Notes</h2>
-    <textarea id="notes" rows="3">${esc(u.notes)}</textarea>
-    <button class="btn ghost" id="saveNotes">Save notes</button>
 
     <button class="btn danger" id="del">${icon('trash', 20)} Remove patient</button>
   `, () => {
@@ -483,16 +552,32 @@ function userDetail(pid, uidv, from = 'home') {
       if (!file) return;
       try {
         store.updateUser(u.id, { photo: await photoFromFile(file) });
-        userDetail(pid, u.id, from);
+        reopen(editing);
       } catch (err) {
         alert(err.message);
       }
     };
-    mountCalendar($('#cal'), s.sessions);
+    if (editing) {
+      $('#cancelEdit').onclick = () => reopen(false);
+      $('#profileForm').onsubmit = (e) => {
+        e.preventDefault();
+        store.updateUser(u.id, {
+          name: $('#pName').value.trim() || u.name,
+          age: Number($('#pAge').value) || null,
+          phone: $('#pPhone').value.trim(),
+          notes: $('#pNotes').value,
+        });
+        reopen(false);
+      };
+    } else {
+      $('#editProfile').onclick = () => reopen(true);
+    }
+    mountCalendar($('#cal'), s.sessions, { appointments: appts, program: u.program });
 
     const renderProgram = () => {
       $('#program').innerHTML = draft.map((item, i) => {
         const ex = EXERCISES[item.exerciseId];
+        const days = item.days?.length ? item.days : ALL_DAYS;
         return `<div class="card ${tint(i)} prog-item" data-i="${i}">
           <div class="prog-top">${figure(item.exerciseId, 'mini')}
             <label>Exercise<select data-f="exerciseId">
@@ -502,6 +587,16 @@ function userDetail(pid, uidv, from = 'home') {
             <label>Sets<input type="number" min="1" max="10" data-f="sets" value="${item.sets}"></label>
             <label>Reps<input type="number" min="1" max="50" data-f="reps" value="${item.reps}"></label>
             <label>${ex.direction < 0 ? 'Knee ≤' : 'Hip ≥'}<input type="number" min="${ex.targetRange[0]}" max="${ex.targetRange[1]}" data-f="target" value="${item.target}"></label>
+          </div>
+          <label>Counting
+            <select data-f="level">${Object.entries(STRICTNESS).map(([k, v]) =>
+              `<option value="${k}" ${k === (item.level ?? 'standard') ? 'selected' : ''}>${v.label}: hold ${v.holdMs / 1000}s, at least ${v.minRepMs / 1000}s per rep</option>`).join('')}</select></label>
+          <fieldset class="days"><legend>Days</legend>
+            ${ALL_DAYS.map((d) => `<button type="button" class="day-chip" data-day="${d}" aria-pressed="${days.includes(d)}" aria-label="${dayName(new Date(2024, 0, 7 + d), true)}">${WEEKDAY_LETTERS[d]}</button>`).join('')}
+          </fieldset>
+          <div class="grid2">
+            <label>Starts<input type="date" data-f="startDate" value="${esc(item.startDate ?? '')}"></label>
+            <label>Ends<input type="date" data-f="endDate" value="${esc(item.endDate ?? '')}"></label>
           </div>
           <label>Instruction video link <small>(YouTube, Vimeo or .mp4)</small>
             <input type="url" inputmode="url" data-f="video" value="${esc(item.video ?? '')}" placeholder="https://youtu.be/…"></label>
@@ -522,6 +617,8 @@ function userDetail(pid, uidv, from = 'home') {
             const ok = !el.value.trim() || parseVideo(el.value);
             draft[i].video = ok ? el.value.trim() : draft[i].video;
             $(`[data-err="${i}"]`).textContent = ok ? '' : 'That link does not look like a video. Paste a YouTube, Vimeo or .mp4 link.';
+          } else if (f === 'level' || f === 'startDate' || f === 'endDate') {
+            draft[i][f] = el.value;
           } else {
             const ex = EXERCISES[draft[i].exerciseId];
             const [lo, hi] = f === 'target' ? ex.targetRange : f === 'sets' ? [1, 10] : [1, 50];
@@ -532,16 +629,46 @@ function userDetail(pid, uidv, from = 'home') {
           $('#saved').textContent = '';
         };
       });
+      $$('#program [data-day]').forEach((b) => (b.onclick = () => {
+        const i = Number(b.closest('[data-i]').dataset.i);
+        const d = Number(b.dataset.day);
+        const days = new Set(draft[i].days?.length ? draft[i].days : ALL_DAYS);
+        if (days.has(d)) {
+          if (days.size === 1) return; // keep at least one day
+          days.delete(d);
+        } else days.add(d);
+        draft[i].days = [...days].sort();
+        b.setAttribute('aria-pressed', days.has(d));
+        $('#saved').textContent = '';
+      }));
       $$('#program [data-remove]').forEach((b) => (b.onclick = () => { draft.splice(Number(b.dataset.remove), 1); renderProgram(); }));
     };
     renderProgram();
 
     $('#addEx').onclick = () => { draft.push(store.newProgramItem('squat', EXERCISES.squat.defaultTarget)); renderProgram(); };
     $('#saveProg').onclick = () => {
+      const bad = draft.find((it) => it.startDate && it.endDate && it.endDate < it.startDate);
+      if (bad) return ($('#saved').textContent = `${exerciseName(bad.exerciseId)}: the end date is before the start date.`);
       store.updateUser(u.id, { program: structuredClone(draft) });
+      reopen(editing);
       $('#saved').textContent = `Saved. ${u.name} will see this plan next time they open the app.`;
+      $('#saved').scrollIntoView({ block: 'center' });
     };
-    $('#saveNotes').onclick = () => { store.updateUser(u.id, { notes: $('#notes').value }); $('#saveNotes').textContent = 'Saved ✓'; };
+    $('#apptForm').onsubmit = (e) => {
+      e.preventDefault();
+      store.addAppointment({
+        userId: u.id,
+        practitionerId: pid,
+        date: $('#aDate').value,
+        time: $('#aTime').value,
+        place: $('#aPlace').value.trim(),
+        note: $('#aNote').value.trim(),
+      });
+      reopen(editing);
+    };
+    $$('[data-del-appt]').forEach((b) => (b.onclick = () => {
+      if (confirm('Cancel this check-up?')) { store.deleteAppointment(b.dataset.delAppt); reopen(editing); }
+    }));
     $('#del').onclick = () => {
       if (confirm(`Remove ${u.name} and all their history?`)) { store.deleteUser(u.id); proApp(pid, from); }
     };
@@ -564,13 +691,15 @@ function userApp(uidv, tab = 'home') {
   const s = userStats(u.id);
   const pro = store.practitioner(u.practitionerId);
   const doneToday = (item) => s.sessions.some((x) => x.programItemId === item.id && x.completed && isToday(x.date));
+  const appts = store.appointmentsOf(u.id);
+  const nextAppt = upcoming(appts)[0];
 
   if (tab === 'calendar') {
     return show(`
       <header class="bar"><span class="round-spacer"></span><h1>Calendar</h1><span class="round-spacer"></span></header>
       <section class="sheet" id="cal"></section>
       ${tabbar(USER_TABS, 'calendar')}
-    `, () => { bindTabs(go); mountCalendar($('#cal'), s.sessions); });
+    `, () => { bindTabs(go); mountCalendar($('#cal'), s.sessions, { appointments: appts, program: u.program }); });
   }
 
   if (tab === 'progress') {
@@ -596,6 +725,7 @@ function userApp(uidv, tab = 'home') {
     return show(`
       <header class="bar"><span class="round-spacer"></span><h1>Profile</h1><span class="round-spacer"></span></header>
       <div class="profile-head">${avatarOf(u, 'xl')}<div><b>${esc(u.name)}</b><small>${u.age ? esc(u.age) + ' years old · ' : ''}Code ${esc(u.code)}</small></div></div>
+      <p class="hint">Your practitioner keeps your details up to date. Ask them if anything needs changing.</p>
       <div class="tiles">
         ${tile('Workouts', s.sessions.filter((x) => x.completed).length, 'green')}
         ${tile('Best squat', s.bestSquat != null ? s.bestSquat + '°' : '–', 'cyan')}
@@ -604,6 +734,7 @@ function userApp(uidv, tab = 'home') {
       <div class="list">
         ${listRow('activity', 'Physical activity', ago(s.last), 'id="toCal"')}
         ${listRow('note', 'Statistics', `This week: ${s.weekReps} reps`, 'id="toProg"')}
+        ${listRow('calendar', 'Next check-up', nextAppt ? fmtAppt(nextAppt) : 'None booked', nextAppt ? 'id="toCal2"' : '')}
         ${listRow('trophy', 'Practitioner', esc(pro?.name ?? 'Not set'))}
         ${listRow('volume', 'Voice coach', voice.enabled ? 'On, tap to turn off' : 'Off, tap to turn on', 'id="voiceRow"')}
         ${listRow('logout', 'Sign out', 'Return to the start screen', 'id="out"')}
@@ -613,13 +744,16 @@ function userApp(uidv, tab = 'home') {
       bindTabs(go);
       $('#toCal').onclick = () => go('calendar');
       $('#toProg').onclick = () => go('progress');
+      if (nextAppt) $('#toCal2').onclick = () => go('calendar');
       $('#voiceRow').onclick = () => { voice.enabled = !voice.enabled; go('profile'); };
       $('#out').onclick = roleScreen;
     });
   }
 
-  const remaining = u.program.filter((i) => !doneToday(i));
-  const cards = u.program.map((item, i) => {
+  const todays = itemsOn(u.program, new Date());
+  const remaining = todays.filter((i) => !doneToday(i));
+  const cards = todays.map((item) => {
+    const i = u.program.indexOf(item);
     const ex = EXERCISES[item.exerciseId];
     const done = doneToday(item);
     return `<button class="card ${tint(i)} tall plan-card" data-start="${item.id}">
@@ -637,6 +771,22 @@ function userApp(uidv, tab = 'home') {
       <small>Keep a sturdy chair within reach. Stop if you feel pain or dizzy.</small></div>`);
   }
 
+  // The next 6 days that have exercises or a check-up.
+  const comingUp = [...Array(6)].map((_, k) => addDays(new Date(), k + 1)).map((d) => {
+    const items = itemsOn(u.program, d);
+    const dayAppts = appts.filter((a) => a.date === ymd(d));
+    if (!items.length && !dayAppts.length) return '';
+    return `<div class="ahead-row"><span class="ahead-day"><b>${dayName(d)}</b><small>${d.getDate()}</small></span>
+      <span class="ahead-items">${items.map((it) => `<span class="pill ${tint(u.program.indexOf(it))}">${exerciseName(it.exerciseId)}</span>`).join('')}
+      ${dayAppts.map((a) => `<span class="pill appt">Check-up ${esc(a.time)}</span>`).join('')}</span></div>`;
+  }).join('');
+  const nextDay = [...Array(30)].map((_, k) => addDays(new Date(), k + 1)).find((d) => itemsOn(u.program, d).length);
+
+  const heroTitle = !u.program.length ? 'Welcome' : !todays.length ? 'Rest day' : remaining.length ? "Today's plan" : 'All done today';
+  const heroText = !u.program.length ? 'Your practitioner has not assigned any exercises yet.'
+    : !todays.length ? (nextDay ? `Next exercises on ${dayName(nextDay, true)}.` : 'Nothing planned yet.')
+    : `${todays.length - remaining.length} of ${todays.length} exercise${todays.length === 1 ? '' : 's'} done`;
+
   show(`
     <header class="greet">
       ${avatarOf(u, 'lg')}
@@ -645,17 +795,24 @@ function userApp(uidv, tab = 'home') {
     </header>
     <section class="hero purple">
       <div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
-      <h2>${remaining.length ? "Today's plan" : 'All done today'}</h2>
-      <p>${u.program.length ? `${u.program.length - remaining.length} of ${u.program.length} exercises done` : 'No exercises assigned yet'}</p>
+      <h2>${heroTitle}</h2>
+      <p>${heroText}</p>
       ${remaining.length ? `<button class="btn dark" id="startNext">Start ${EXERCISES[remaining[0].exerciseId].name}</button>` : ''}
     </section>
-    ${weekStrip(s.sessions)}
-    <h2 class="section-title">Your plan</h2>
-    <div class="grid2">${cards.join('') || '<p class="empty">Your practitioner has not assigned any exercises yet.</p>'}</div>
+    ${nextAppt ? `<button class="card blue appt-card" id="apptCard">
+      <span class="pill">Next check-up</span>
+      <strong>${fmtAppt(nextAppt)}</strong>
+      <small>${esc([nextAppt.place, nextAppt.note].filter(Boolean).join(' · ') || 'With your practitioner')}</small>
+      <span class="trainer">${avatar(pro?.name ?? '?', 'sm')}<span><small>With</small><b>${esc(pro?.name ?? '')}</b></span></span>
+    </button>` : ''}
+    ${weekStrip(s.sessions, u.program)}
+    ${todays.length ? `<h2 class="section-title">Today</h2><div class="grid2">${cards.join('')}</div>` : ''}
+    ${comingUp ? `<h2 class="section-title">Coming up</h2><div class="ahead sheet">${comingUp}</div>` : ''}
     ${tabbar(USER_TABS, 'home')}
   `, () => {
     bindTabs(go);
     $('#toCalTop').onclick = () => go('calendar');
+    if (nextAppt) $('#apptCard').onclick = () => go('calendar');
     if (remaining.length) $('#startNext').onclick = () => prepScreen(u.id, remaining[0].id);
     $$('[data-start]').forEach((b) => (b.onclick = () => prepScreen(u.id, b.dataset.start)));
   });
@@ -742,10 +899,11 @@ function exerciseScreen(uidv, item) {
 
   const video = $('#video'), canvas = $('#canvas'), status = $('#status');
   let facing = 'user', stream = null, stopDetect = null;
-  let counter = RepCounter.forExercise(ex, target);
+  let counter = RepCounter.forExercise(ex, target, item.level);
   const smoother = new Smoother();
   let set = 1, totalReps = 0, totalPartials = 0, resting = false, finished = false;
   let lostSince = null, restTimer = null;
+  let formIssue = null; // 'lean' | 'deep' during the current rep
   const extremes = [];
   const t0 = Date.now();
   const mmss = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -772,17 +930,19 @@ function exerciseScreen(uidv, item) {
   const handle = (e) => {
     if (e.type === 'ready') feedback(ex.cues.ready, { tone: 'good', urgent: true });
     else if (e.type === 'goal' && ex.cues.goal) feedback(ex.cues.goal, { tone: 'good' });
+    else if (e.type === 'holding') feedback(ex.cues.holding, { tone: 'good' });
     else if (e.type === 'partial') {
       totalPartials++;
-      feedback(ex.cues.partial, { tone: 'warn' });
+      const formCue = formIssue === 'deep' ? 'Too deep. Stop at the target. That one did not count.' : ex.cues.form;
+      const cue = { shallow: ex.cues.partial, nohold: ex.cues.nohold, form: formCue, fast: fastCue }[e.reason];
+      feedback(cue ?? ex.cues.partial, { tone: 'warn', urgent: true });
     } else if (e.type === 'rep') {
       totalReps++;
       extremes.push(e.extreme);
       showReps();
       const left = item.reps - counter.reps;
       let spoken = String(counter.reps);
-      if (e.duration < 1200) spoken += '. Nice and slow.';
-      else if (left === 1) spoken += '. One more!';
+      if (left === 1) spoken += '. One more!';
       feedback(left === 1 ? `Rep ${counter.reps}. One more!` : `Rep ${counter.reps}. Well done!`, { speak: false, tone: 'good' });
       say(spoken, { urgent: true });
       if (left <= 0) completeSet();
@@ -801,6 +961,11 @@ function exerciseScreen(uidv, item) {
     const m = measure(ex, landmarks, w, h);
     if (!m) {
       lostSince ??= Date.now();
+      // Out of view for a moment: cancel the rep in progress so it can't count.
+      if (Date.now() - lostSince > 700) {
+        counter.interrupt();
+        smoother.reset();
+      }
       if (Date.now() - lostSince > 2000 && !resting && !finished) {
         feedback('Step back so I can see your whole body.', { tone: 'warn' });
       }
@@ -809,7 +974,13 @@ function exerciseScreen(uidv, item) {
     lostSince = null;
     const a = smoother.next(m.angle);
     if (resting || finished) return;
-    counter.update(a).forEach(handle);
+    const leaning = ex.checkTrunk && m.lean > MAX_TRUNK_LEAN;
+    const tooDeep = ex.safeLimit != null && (ex.direction < 0 ? a < ex.safeLimit : a > ex.safeLimit);
+    if (counter.state === 'start') formIssue = null;
+    if (tooDeep) formIssue = 'deep';
+    else if (leaning) formIssue ??= 'lean';
+    counter.update(a, Date.now(), !(leaning || tooDeep)).forEach(handle);
+    if (tooDeep) feedback('That is deep enough. Do not go lower.', { tone: 'warn' });
     if (counter.state === 'waiting') feedback(ex.cues.waiting, { tone: 'warn' });
     else if (ex.checkTrunk && counter.state !== 'start' && m.lean > MAX_TRUNK_LEAN) feedback('Keep your chest up.', { tone: 'warn' });
   };
@@ -833,7 +1004,7 @@ function exerciseScreen(uidv, item) {
     clearInterval(restTimer);
     $('#rest').hidden = true;
     set++;
-    counter = RepCounter.forExercise(ex, target);
+    counter = RepCounter.forExercise(ex, target, item.level);
     showReps();
     $('#setLabel').textContent = `${set}/${item.sets}`;
     resting = false;

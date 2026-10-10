@@ -15,6 +15,10 @@ A mobile-first web app that helps older adults exercise safely. The phone camera
 - List of users with last exercised, sessions completed this week and % of full-range reps.
 - Add a user (name, age, notes); the app gives them a login code.
 - Pastel card design with a dark pill tab bar (Users, Add user, Profile).
+- Patient profile (name, age, phone, notes, photo) is added and edited by the practitioner only; patients see it read-only.
+- Plan ahead: each exercise has its weekdays, a start date and an optional end date, plus a "Next 2 weeks" preview on the patient page. Patients only see the exercises planned for today, with a "Coming up" list.
+- Check-ups: practitioners book appointments (date, time, place, what it's for). Patients see the next check-up on their home screen, in their profile and on the calendar; practitioners see upcoming check-ups across all patients on their home screen.
+- Counting strictness per exercise (Gentle / Standard / Strict).
 - Per user: edit the program (exercise, sets, reps, target angle and an optional instruction video link: YouTube, Vimeo or .mp4), notes, a workout calendar, and session history (reps, partial reps, best angle, time).
 
 **User side**
@@ -33,7 +37,15 @@ A mobile-first web app that helps older adults exercise safely. The phone camera
 | Squats | Knee (hip-knee-ankle) | You bend to the target and stand back up past 160° | Depth, 80-130° (default 110°) |
 | Sit to stand | Hip (shoulder-hip-knee) | You rise from seated (≤120°) to the target | Standing angle, 140-175° (default 160°) |
 
-Moving out of the start position but not reaching the target is logged as a partial rep, not a rep.
+A rep only counts when the person starts from the proper position (fully standing for squats, seated for sit-to-stand), reaches the target and **holds it**, keeps good form the whole way (no leaning too far forward, no going dangerously deep), takes long enough (no bouncing), and stays fully in view (shoulder, hip, knee and ankle clearly visible). Anything else is logged as "not counted" and the coach says why.
+
+| Strictness | Hold at target | Minimum time per rep |
+|---|---|---|
+| Gentle | 0.3 s | 1.5 s |
+| Standard (default) | 0.6 s | 2 s |
+| Strict | 1 s | 3 s |
+
+For sit-to-stand the minimum time applies to the way up, so it is halved.
 
 **Spoken feedback** (browser speech, mute button on screen): "Stand up tall to begin", "Good, now slowly bend your knees", "Try to bend a little lower", "Try to stand up all the way", "Keep your chest up" (squats, if leaning over 50°), "Step back so I can see your whole body", rep counts, "One more!", "Nice and slow" for rushed reps, set complete / rest / get ready, and a well done at the end.
 
@@ -51,7 +63,8 @@ js/app.js        screens and the exercise session
 js/exercises.js  exercise settings, angle maths, rep counter (pure, tested)
 js/pose.js       camera + MediaPipe + skeleton drawing
 js/voice.js      spoken feedback
-js/calendar.js   workout calendar
+js/calendar.js   calendar of workouts, planned days and check-ups
+js/schedule.js   which exercises are planned on which day
 js/video.js      instruction video links (YouTube, Vimeo, .mp4)
 js/store.js      demo storage
 tests/           node --test tests/*.test.mjs

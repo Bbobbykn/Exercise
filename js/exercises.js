@@ -15,7 +15,7 @@ export const EXERCISES = {
     points: ['hip', 'knee', 'ankle'],
     jointLabel: 'Knee angle',
     direction: -1, // the angle gets smaller toward the goal
-    startAngle: 160, // standing tall
+    startAngle: 165, // standing fully tall
     moveAngle: 145, // clearly started bending
     defaultTarget: 110, // practitioner can set 80-130°
     targetRange: [80, 130],
@@ -31,7 +31,10 @@ export const EXERCISES = {
       ready: 'Good. Now slowly bend your knees.',
       waiting: 'Stand up tall to begin.',
       goal: 'Good depth. Now push back up.',
-      partial: 'Try to bend a little lower.',
+      holding: 'Hold it there.',
+      partial: 'Try to bend a little lower. That one did not count.',
+      nohold: 'Hold the bottom for a moment. That one did not count.',
+      form: 'Keep your chest up. That one did not count.',
     },
   },
   sitToStand: {
@@ -56,10 +59,23 @@ export const EXERCISES = {
       ready: 'Good. Now stand up.',
       waiting: 'Sit down on the chair to begin.',
       goal: null,
-      partial: 'Try to stand up all the way.',
+      holding: 'Stand tall and hold.',
+      partial: 'Stand up all the way. That one did not count.',
+      nohold: 'Stand tall for a moment before sitting. That one did not count.',
+      form: 'Stay steady. That one did not count.',
     },
   },
 };
+
+// How strict counting is, set per exercise by the practitioner.
+// holdMs: how long the target position must be held.
+// minRepMs: reps faster than this are not counted.
+export const STRICTNESS = {
+  gentle: { label: 'Gentle', holdMs: 300, minRepMs: 1500 },
+  standard: { label: 'Standard', holdMs: 600, minRepMs: 2000 },
+  strict: { label: 'Strict', holdMs: 1000, minRepMs: 3000 },
+};
+export const fastCue = 'Too fast. Go slowly, that one did not count.';
 
 export function exerciseName(id) {
   return EXERCISES[id]?.name ?? id;
@@ -93,12 +109,14 @@ export function pickSide(landmarks) {
 
 // Reads the exercise's joint angle from one frame of landmarks.
 // Returns null when the needed joints are not clearly visible.
-export function measure(exercise, landmarks, width, height, minVisibility = 0.5) {
+// The shoulder, hip, knee and ankle on that side must all be clearly
+// visible, so reps are never counted from a half-seen or guessed body.
+export function measure(exercise, landmarks, width, height, minVisibility = 0.65) {
   if (!landmarks) return null;
   const side = pickSide(landmarks);
   const idx = LM[side];
+  if (Object.values(idx).some((i) => !landmarks[i] || (landmarks[i].visibility ?? 1) < minVisibility)) return null;
   const pts = exercise.points.map((p) => landmarks[idx[p]]);
-  if (pts.some((p) => !p || (p.visibility ?? 1) < minVisibility)) return null;
   const angle = jointAngle(pts[0], pts[1], pts[2], width, height);
   if (Number.isNaN(angle)) return null;
   const lean = trunkLean(landmarks[idx.shoulder], landmarks[idx.hip], width, height);
@@ -121,29 +139,47 @@ export class Smoother {
 }
 
 // State machine: waiting -> start -> moving -> goal -> start ...
-// A partial rep is when you leave the start position but come back
-// without reaching the goal angle.
+// A rep only counts when the person
+//   - starts from the proper start position (standing tall / seated),
+//   - reaches the target angle and holds it for holdMs,
+//   - keeps good form the whole way (formOk passed in each frame),
+//   - takes at least minRepMs (no bouncing or rushing),
+//   - stays in view (interrupt() cancels a rep in progress).
+// Anything else is a partial rep with a reason:
+// 'shallow' | 'nohold' | 'form' | 'fast'.
 export class RepCounter {
-  constructor({ direction, startAngle, moveAngle, goalAngle, countAt }) {
-    Object.assign(this, { direction, startAngle, moveAngle, goalAngle, countAt });
+  constructor({ direction, startAngle, moveAngle, goalAngle, countAt, holdMs = 0, minRepMs = 0 }) {
+    Object.assign(this, { direction, startAngle, moveAngle, goalAngle, countAt, holdMs, minRepMs });
     this.state = 'waiting';
     this.reps = 0;
     this.partials = 0;
     this.extreme = null;
     this.repStart = 0;
+    this.goalSince = null;
+    this.touchedGoal = false;
+    this.badForm = false;
   }
 
-  static forExercise(exercise, target) {
+  static forExercise(exercise, target, level = 'standard') {
+    const strict = STRICTNESS[level] ?? STRICTNESS.standard;
     return new RepCounter({
       direction: exercise.direction,
       startAngle: exercise.startAngle,
       moveAngle: exercise.moveAngle,
       goalAngle: target ?? exercise.defaultTarget,
       countAt: exercise.countAt,
+      holdMs: strict.holdMs,
+      minRepMs: strict.minRepMs,
     });
   }
 
-  update(a, now = Date.now()) {
+  // The person left the frame or tracking was lost: drop any rep in
+  // progress and wait for them to get back into the start position.
+  interrupt() {
+    if (this.state === 'moving' || this.state === 'goal') this.state = 'waiting';
+  }
+
+  update(a, now = Date.now(), formOk = true) {
     const d = this.direction;
     const atStart = d < 0 ? a >= this.startAngle : a <= this.startAngle;
     const left = d < 0 ? a < this.moveAngle : a > this.moveAngle;
@@ -161,31 +197,54 @@ export class RepCounter {
       this.state = 'moving';
       this.repStart = now;
       this.extreme = a;
+      this.goalSince = null;
+      this.touchedGoal = false;
+      this.badForm = false;
     }
     if (this.state === 'moving' || this.state === 'goal') {
       this.extreme = d < 0 ? Math.min(this.extreme, a) : Math.max(this.extreme, a);
+      if (!formOk) this.badForm = true;
     }
     if (this.state === 'moving') {
       if (atGoal) {
-        this.state = 'goal';
-        events.push({ type: 'goal' });
-        if (this.countAt === 'goal') events.push(this.#rep(now));
-      } else if (atStart) {
-        this.state = 'start';
-        this.partials++;
-        events.push({ type: 'partial', extreme: this.extreme });
+        if (this.goalSince == null) {
+          this.goalSince = now;
+          this.touchedGoal = true;
+          if (this.holdMs > 0) events.push({ type: 'holding' });
+        }
+        if (now - this.goalSince >= this.holdMs) {
+          this.state = 'goal';
+          events.push({ type: 'goal' });
+          if (this.countAt === 'goal') events.push(this.#finish(now));
+        }
+      } else {
+        this.goalSince = null;
+        if (atStart) {
+          this.state = 'start';
+          events.push(this.#partial(this.touchedGoal ? 'nohold' : 'shallow'));
+        }
       }
     } else if (this.state === 'goal' && atStart) {
       this.state = 'start';
       events.push({ type: 'returned' });
-      if (this.countAt === 'return') events.push(this.#rep(now));
+      if (this.countAt === 'return') events.push(this.#finish(now));
     }
     return events;
   }
 
-  #rep(now) {
+  #partial(reason) {
+    this.partials++;
+    return { type: 'partial', reason, extreme: this.extreme };
+  }
+
+  #finish(now) {
+    const duration = now - this.repStart;
+    if (this.badForm) return this.#partial('form');
+    // Counting on reaching the goal only times the way up, so allow half.
+    const minMs = this.countAt === 'goal' ? this.minRepMs / 2 : this.minRepMs;
+    if (duration < minMs) return this.#partial('fast');
     this.reps++;
-    return { type: 'rep', count: this.reps, extreme: this.extreme, duration: now - this.repStart };
+    return { type: 'rep', count: this.reps, extreme: this.extreme, duration };
   }
 }
 

@@ -48,6 +48,8 @@ b, strong { font-weight: 600; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .between { justify-content: space-between; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid2 > *, .grid3 > * { min-width: 0; }
+input[type="date"], input[type="time"] { min-width: 0; -webkit-appearance: none; appearance: none; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
 /* Forms */
@@ -148,6 +150,10 @@ button { font: inherit; cursor: pointer; color: inherit; }
 .pill.muted { background: rgba(255, 255, 255, 0.6); color: var(--muted); }
 .pill.orange { background: var(--orange); }
 .pill.purple { background: #e4ddff; }
+.pill.blue { background: var(--blue); }
+.pill.green { background: var(--green); }
+.pill.pink { background: var(--pink); }
+.pill.cyan { background: var(--cyan); }
 
 .user-card { width: 100%; }
 .user-card strong { font-size: 1.35rem; margin-top: 4px; }
@@ -163,6 +169,8 @@ button { font: inherit; cursor: pointer; color: inherit; }
 }
 .day i { width: 6px; height: 6px; border-radius: 99px; background: transparent; }
 .day i.on { background: var(--ink); }
+.day i.planned { border: 1.5px solid var(--ink); }
+.day.today i.planned { border-color: #fff; }
 .day small { font-size: 0.82rem; }
 .day b { font-weight: 500; font-size: 1.05rem; }
 .day.today { background: var(--ink); color: #fff; border-color: var(--ink); }
@@ -264,6 +272,35 @@ img.avatar { object-fit: cover; padding: 0; background: var(--line); }
 .pc-stats b { font-size: 1.2rem; }
 .pc-stats small { font-size: 0.78rem; }
 
+/* Planning, check-ups, profile details */
+.ahead { display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; }
+.ahead-row { display: flex; gap: 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ahead-row:last-child { border-bottom: 0; }
+.ahead-row.today .ahead-day b { color: var(--ink); text-decoration: underline; }
+.ahead-day { display: flex; flex-direction: column; align-items: center; width: 52px; flex: none; line-height: 1.1; }
+.ahead-day b { font-weight: 600; }
+.ahead-items { display: flex; gap: 6px; flex-wrap: wrap; }
+.ahead-items .pill, .pill.appt { font-size: 0.85rem; }
+.pill.appt { background: #e4ddff; color: #4c3bb0; }
+.appt-card { width: 100%; margin-top: 14px; }
+.appt-card strong { font-size: 1.5rem; margin-top: 4px; }
+.appt-card .trainer { margin-top: 10px; }
+.appt-form { margin-top: 12px; }
+.details .list-row { padding: 12px 2px; }
+.days { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.days legend { font-weight: 500; font-size: 0.95rem; margin-bottom: 6px; padding: 0; grid-column: 1 / -1; }
+.day-chip { width: 100%; max-width: 46px; aspect-ratio: 1; justify-self: center; border-radius: 999px; border: 1.5px solid rgba(17, 17, 20, 0.25); background: rgba(255, 255, 255, 0.6); font-weight: 600; padding: 0; }
+.day-chip[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.cal-day.planned::after, .cal-day.appt::before { content: ''; position: absolute; left: 50%; border-radius: 99px; }
+.cal-day { position: relative; }
+.cal-day.planned::after { width: 6px; height: 6px; bottom: 3px; margin-left: -3px; background: var(--ink); }
+.cal-day.appt { box-shadow: inset 0 0 0 3px #7c6ae0; }
+.cal-legend { flex-wrap: wrap; }
+.cal-legend i.planned { width: 8px; height: 8px; background: var(--ink); margin-top: 3px; }
+.cal-legend i.appt { box-shadow: inset 0 0 0 3px #7c6ae0; }
+.cal-list li.appt-li { background: #ece7ff; }
+.cal-list li.plan-li { background: transparent; border: 1.5px dashed var(--line); }
+
 /* Tab bar */
 .tabbar {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom));
@@ -283,7 +320,6 @@ img.avatar { object-fit: cover; padding: 0; background: var(--line); }
   aspect-ratio: 1; min-height: 40px; border-radius: 999px; border: 2px solid transparent;
   background: transparent; font-size: 1.05rem; padding: 0;
 }
-.cal-day:disabled { cursor: default; color: var(--ink); }
 .cal-day.today { border-color: var(--line); }
 .cal-day.done { background: #b9772d; color: #fff; border-color: #e1a35a; }
 .cal-day.some { border-color: #e1a35a; color: #9a5f1e; }
