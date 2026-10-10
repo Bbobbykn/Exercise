@@ -4,7 +4,7 @@
 
 const KEY = 'exerciseApp.v1';
 
-import { ALL_DAYS, ymd, addDays } from './schedule.js';
+import { ALL_DAYS, ymd, addDays } from './schedule.js?v=20261010b';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -99,6 +99,20 @@ export const store = {
   },
   practitioner(id) {
     return db.practitioners.find((p) => p.id === id) ?? null;
+  },
+  // Practitioners edit their own profile. Returns an error message or null.
+  updatePractitioner(id, changes) {
+    const p = this.practitioner(id);
+    if (!p) return 'Account not found.';
+    const name = (changes.name ?? p.name).trim();
+    const pin = changes.pin || p.pin;
+    if (!name) return 'Please enter your name.';
+    if (changes.pin != null && changes.pin !== '' && !/^\d{4,8}$/.test(changes.pin)) return 'The PIN must be 4 to 8 digits.';
+    const clash = db.practitioners.some((o) => o.id !== id && o.name.toLowerCase() === name.toLowerCase() && o.pin === pin);
+    if (clash) return 'Another account already uses that name and PIN. Choose a different PIN.';
+    Object.assign(p, changes, { name, pin });
+    save();
+    return null;
   },
 
   // Users

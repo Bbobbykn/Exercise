@@ -88,8 +88,8 @@ button { font: inherit; cursor: pointer; color: inherit; }
 .greet { display: flex; align-items: center; gap: 12px; margin: 4px 0 18px; }
 .greet > div { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .greet b { font-size: 1.2rem; font-weight: 500; }
-.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 18px; }
-.bar h1 { font-size: 1.6rem; text-align: center; flex: 1; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 54px; margin: 4px 0 18px; overflow: visible; }
+.topbar h1 { font-size: 1.6rem; line-height: 1.25; text-align: center; flex: 1; min-width: 0; padding: 2px 0; }
 
 /* Avatars */
 .avatar {

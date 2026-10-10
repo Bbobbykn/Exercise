@@ -1,10 +1,10 @@
-import { EXERCISES, exerciseName, measure, formChecks, STRICTNESS, customFields, countingRules, fastCue, Smoother, RepCounter } from './exercises.js';
-import { mountCalendar } from './calendar.js';
-import { parseVideo, videoEmbed } from './video.js';
-import { ALL_DAYS, ymd, addDays, isScheduled, itemsOn, scheduleText } from './schedule.js';
-import { store, cleanAge } from './store.js';
-import { Voice } from './voice.js';
-import { loadPoseModel, startCamera, stopCamera, runDetection, drawPose } from './pose.js';
+import { EXERCISES, exerciseName, measure, formChecks, STRICTNESS, customFields, countingRules, fastCue, Smoother, RepCounter } from './exercises.js?v=20261010b';
+import { mountCalendar } from './calendar.js?v=20261010b';
+import { parseVideo, videoEmbed } from './video.js?v=20261010b';
+import { ALL_DAYS, ymd, addDays, isScheduled, itemsOn, scheduleText } from './schedule.js?v=20261010b';
+import { store, cleanAge } from './store.js?v=20261010b';
+import { Voice } from './voice.js?v=20261010b';
+import { loadPoseModel, startCamera, stopCamera, runDetection, drawPose } from './pose.js?v=20261010b';
 
 const app = document.getElementById('app');
 const voice = new Voice();
@@ -87,7 +87,11 @@ function photoFromFile(file) {
   });
 }
 
-const firstName = (n) => String(n).replace(/\s*\(demo\)$/, '').split(' ')[0];
+// First name, skipping a title such as "Dr" so it reads "Hello, Somchai".
+const firstName = (n) => {
+  const words = String(n).replace(/\s*\(demo\)$/, '').trim().split(/\s+/);
+  return (words.length > 1 && /^(dr|mr|mrs|ms|miss|prof|khun)\.?$/i.test(words[0]) ? words[1] : words[0]) ?? '';
+};
 
 // Dark pill tab bar at the bottom of the screen.
 function tabbar(items, active) {
@@ -218,7 +222,7 @@ function roleScreen() {
 }
 
 function backHeader(title, onBack, right = '') {
-  return `<header class="bar">
+  return `<header class="topbar">
     <button class="round" id="back" aria-label="Back">${icon('left')}</button>
     <h1>${title}</h1>${right || '<span class="round-spacer"></span>'}</header>`;
 }
@@ -293,7 +297,7 @@ function proApp(pid, tab = 'home') {
   if (!p) return roleScreen();
   const go = (t) => proApp(pid, t);
   if (tab === 'add') return proAddUser(p, go);
-  if (tab === 'profile') return proProfile(p, go);
+  if (tab === 'profile' || tab === 'profile-edit') return proProfile(p, go, tab === 'profile-edit');
   if (tab === 'progress') return proProgress(p, go);
 
   const users = store.usersOf(pid);
@@ -314,7 +318,7 @@ function proApp(pid, tab = 'home') {
 
   show(`
     <header class="greet">
-      ${avatar(p.name, 'lg')}
+      ${avatarOf(p, 'lg')}
       <div><b>Hello, ${esc(firstName(p.name))}</b><small>${todayLabel()}</small></div>
       <button class="round" id="addTop" aria-label="Add patient">${icon('plus')}</button>
     </header>
@@ -352,7 +356,7 @@ function apptList(appts, { showPatient = false, canDelete = false, title = '' } 
 
 function proAddUser(p, go) {
   show(`
-    <header class="bar"><span class="round-spacer"></span><h1>Add patient</h1><span class="round-spacer"></span></header>
+    <header class="topbar"><span class="round-spacer"></span><h1>Add patient</h1><span class="round-spacer"></span></header>
     <section class="hero green small">
       <h2>New patient</h2>
       <p>They'll get a 4-digit code to sign in. You can assign their plan next.</p>
@@ -392,20 +396,46 @@ function proAddUser(p, go) {
   });
 }
 
-function proProfile(p, go) {
+function proProfile(p, go, editing = false) {
   const users = store.usersOf(p.id);
   const all = users.flatMap((u) => store.sessionsOf(u.id));
   const week = all.filter((s) => Date.now() - new Date(s.date) < 7 * DAY);
+  const details = `
+    <div class="list details">
+      ${listRow('trophy', 'Role', esc(p.role || 'Health practitioner'))}
+      ${listRow('home', 'Clinic', esc(p.clinic || 'Not set'))}
+      ${listRow('note', 'Phone', esc(p.phone || 'Not set'))}
+      ${listRow('user', 'Email', esc(p.email || 'Not set'))}
+    </div>`;
+  const form = `
+    <form id="proForm" class="stack sheet">
+      <label>Name<input id="prName" required value="${esc(p.name)}"></label>
+      <label>Role<input id="prRole" placeholder="Physiotherapist" value="${esc(p.role ?? '')}"></label>
+      <label>Clinic<input id="prClinic" value="${esc(p.clinic ?? '')}"></label>
+      <label>Phone<input id="prPhone" type="tel" value="${esc(p.phone ?? '')}"></label>
+      <label>Email<input id="prEmail" type="email" value="${esc(p.email ?? '')}"></label>
+      <label>New PIN <small>(leave blank to keep your PIN)</small><input id="prPin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" autocomplete="new-password"></label>
+      <p class="hint">You sign in with your name and PIN, so remember them if you change them.</p>
+      <small class="video-err" id="proErr"></small>
+      <div class="row"><button class="btn dark" type="submit">Save details</button><button class="btn ghost" type="button" id="cancelPro">Cancel</button></div>
+    </form>`;
   show(`
-    <header class="bar"><span class="round-spacer"></span><h1>Profile</h1><span class="round-spacer"></span></header>
-    <div class="profile-head">${avatar(p.name, 'xl')}<div><b>${esc(p.name)}</b><small>Health practitioner</small></div></div>
+    <header class="topbar"><span class="round-spacer"></span><h1>Profile</h1><span class="round-spacer"></span></header>
+    <div class="profile-head">
+      <label class="photo-edit" aria-label="Change your photo">${avatarOf(p, 'xl')}<span class="cam">${icon('camera', 14)}</span>
+        <input id="proPhoto" type="file" accept="image/*" hidden></label>
+      <div><b>${esc(p.name)}</b><small>${esc(p.role || 'Health practitioner')}</small></div>
+    </div>
+    <small class="video-err" id="photoErr"></small>
     <div class="tiles">
       ${tile('Patients', users.length, 'green')}
-      ${tile('Sessions this week', week.length, 'cyan')}
-      ${tile('Reps this week', week.reduce((n, s) => n + s.reps, 0), 'orange')}
+      ${tile('Workouts/wk', week.length, 'cyan')}
+      ${tile('Reps/wk', week.reduce((n, s) => n + s.reps, 0), 'orange')}
     </div>
+    <div class="row between"><h2 class="section-title">Your details</h2>${editing ? '' : '<button class="btn ghost" id="editPro">Edit</button>'}</div>
+    ${editing ? form : details}
     <div class="list">
-      ${listRow('users', 'Your patients', `${users.length} people`, 'id="toUsers"')}
+      ${listRow('users', 'Your patients', `${users.length} ${users.length === 1 ? 'person' : 'people'}`, 'id="toUsers"')}
       ${listRow('chart', 'Patients progress', 'Everyone on one page', 'id="toProgress"')}
       ${listRow('logout', 'Sign out', 'Return to the start screen', 'id="out"')}
     </div>
@@ -415,6 +445,34 @@ function proProfile(p, go) {
     $('#toUsers').onclick = () => go('home');
     $('#toProgress').onclick = () => go('progress');
     $('#out').onclick = roleScreen;
+    $('#proPhoto').onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        store.updatePractitioner(p.id, { photo: await photoFromFile(file) });
+        go(editing ? 'profile-edit' : 'profile');
+      } catch (err) {
+        $('#photoErr').textContent = err.message;
+      }
+    };
+    if (!editing) {
+      $('#editPro').onclick = () => go('profile-edit');
+      return;
+    }
+    $('#cancelPro').onclick = () => go('profile');
+    $('#proForm').onsubmit = (e) => {
+      e.preventDefault();
+      const err = store.updatePractitioner(p.id, {
+        name: $('#prName').value,
+        role: $('#prRole').value.trim(),
+        clinic: $('#prClinic').value.trim(),
+        phone: $('#prPhone').value.trim(),
+        email: $('#prEmail').value.trim(),
+        pin: $('#prPin').value.trim(),
+      });
+      if (err) $('#proErr').textContent = err;
+      else go('profile');
+    };
   });
 }
 
@@ -450,7 +508,7 @@ function proProgress(p, go, sort = 'attention') {
   }).join('');
 
   show(`
-    <header class="bar"><span class="round-spacer"></span><h1>Patients progress</h1><span class="round-spacer"></span></header>
+    <header class="topbar"><span class="round-spacer"></span><h1>Patients progress</h1><span class="round-spacer"></span></header>
     <div class="tiles">
       ${tile('Patients', users.length, 'green')}
       ${tile('Active this week', `${active}/${users.length}`, 'cyan')}
@@ -747,7 +805,7 @@ function userApp(uidv, tab = 'home') {
 
   if (tab === 'calendar') {
     return show(`
-      <header class="bar"><span class="round-spacer"></span><h1>Calendar</h1><span class="round-spacer"></span></header>
+      <header class="topbar"><span class="round-spacer"></span><h1>Calendar</h1><span class="round-spacer"></span></header>
       <section class="sheet" id="cal"></section>
       ${tabbar(USER_TABS, 'calendar')}
     `, () => { bindTabs(go); mountCalendar($('#cal'), s.sessions, { appointments: appts, program: u.program }); });
@@ -760,7 +818,7 @@ function userApp(uidv, tab = 'home') {
       `${fmtDate(x.date)} · ${x.reps} reps · ${minutes(x.durationSec)}`,
     )).join('');
     return show(`
-      <header class="bar"><span class="round-spacer"></span><h1>Progress</h1><span class="round-spacer"></span></header>
+      <header class="topbar"><span class="round-spacer"></span><h1>Progress</h1><span class="round-spacer"></span></header>
       <div class="tiles">
         ${tile('Workouts this week', s.weekCompleted, 'green')}
         ${tile('Reps this week', s.weekReps, 'cyan')}
@@ -774,7 +832,7 @@ function userApp(uidv, tab = 'home') {
 
   if (tab === 'profile') {
     return show(`
-      <header class="bar"><span class="round-spacer"></span><h1>Profile</h1><span class="round-spacer"></span></header>
+      <header class="topbar"><span class="round-spacer"></span><h1>Profile</h1><span class="round-spacer"></span></header>
       <div class="profile-head">${avatarOf(u, 'xl')}<div><b>${esc(u.name)}</b><small>${u.age ? esc(u.age) + ' years old · ' : ''}Code ${esc(u.code)}</small></div></div>
       <p class="hint">Your practitioner keeps your details up to date. Ask them if anything needs changing.</p>
       <div class="tiles">
@@ -814,7 +872,7 @@ function userApp(uidv, tab = 'home') {
       <small>${targetText(ex, item.target)}</small>
       ${parseVideo(item.video) ? '<small>▶ Video guide</small>' : ''}
       ${figure(item.exerciseId, 'card-figure')}
-      <span class="trainer">${avatar(pro?.name ?? '?', 'sm')}<span><small>Practitioner</small><b>${esc(firstName(pro?.name ?? ''))}</b></span></span>
+      <span class="trainer">${avatarOf(pro, 'sm')}<span><small>Practitioner</small><b>${esc(firstName(pro?.name ?? ''))}</b></span></span>
     </button>`;
   });
   if (cards.length % 2) {
@@ -854,7 +912,7 @@ function userApp(uidv, tab = 'home') {
       <span class="pill">Next check-up</span>
       <strong>${fmtAppt(nextAppt)}</strong>
       <small>${esc([nextAppt.place, nextAppt.note].filter(Boolean).join(' · ') || 'With your practitioner')}</small>
-      <span class="trainer">${avatar(pro?.name ?? '?', 'sm')}<span><small>With</small><b>${esc(pro?.name ?? '')}</b></span></span>
+      <span class="trainer">${avatarOf(pro, 'sm')}<span><small>With</small><b>${esc(pro?.name ?? '')}</b></span></span>
     </button>` : ''}
     ${weekStrip(s.sessions, u.program)}
     ${todays.length ? `<h2 class="section-title">Today</h2><div class="grid2">${cards.join('')}</div>` : ''}

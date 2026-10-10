@@ -1,8 +1,8 @@
 // Month calendar of workouts, planned exercises and check-ups.
 // Filled day: finished workout. Outlined: stopped early. Small dot: exercises
 // planned (today onwards). Purple ring: check-up. Tap a day for details.
-import { exerciseName } from './exercises.js';
-import { itemsOn, ymd } from './schedule.js';
+import { exerciseName } from './exercises.js?v=20261010b';
+import { itemsOn, ymd } from './schedule.js?v=20261010b';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 

@@ -16,6 +16,7 @@ A mobile-first web app that helps older adults exercise safely. The phone camera
 - Add a user (name, age 1-100, notes); the app gives them a login code.
 - Pastel card design with a dark pill tab bar (Users, Add user, Profile).
 - Patient profile (name, age, phone, notes, photo) is added and edited by the practitioner only; patients see it read-only.
+- Practitioners edit their own profile on the Profile tab: photo, name, role, clinic, phone, email and PIN. Patients see their practitioner's name and photo.
 - Plan ahead: each exercise has its weekdays, a start date and an optional end date, plus a "Next 2 weeks" preview on the patient page. Patients only see the exercises planned for today, with a "Coming up" list.
 - Check-ups: practitioners book appointments (date, time, place, what it's for). Patients see the next check-up on their home screen, in their profile and on the calendar; practitioners see upcoming check-ups across all patients on their home screen.
 - Counting strictness per exercise (Gentle / Standard / Strict), or **Custom** to set each counting rule yourself: hold time at the target, minimum time per rep, the start position angle, the angle where a rep begins, and for squats the maximum forward lean and the "too deep" limit. Angles are kept in a sensible order (for squats: standing > rep starts > target > too deep).
@@ -77,6 +78,8 @@ tests/           node --test tests/*.test.mjs
 Phones only allow the camera on `https://` pages (or `localhost`). Any static host works: GitHub Pages, Netlify, Vercel or Cloudflare Pages. Upload this folder as is.
 
 On a computer: `npx serve .` (or `python3 -m http.server`) and open `http://localhost:3000` with a webcam.
+
+**Updating:** file links carry a version (`?v=…` in `index.html` and every `import` in `js/`). Change it on each release so phones load the new files instead of cached ones.
 
 ## Known limits
 
