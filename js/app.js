@@ -438,7 +438,7 @@ function proProgress(p, go, sort = 'attention') {
           <small>${u.age ? esc(u.age) + ' yrs · ' : ''}${s.last ? 'Last exercised ' + ago(s.last).toLowerCase() : 'Not exercised yet'}</small></div>
       </div>
       <div class="pc-bar"><span><small>Plan done, last 7 days</small><b>${s.planPct != null ? pct + '%' : 'No plan'}</b></span>
-        <div class="bar ${level}" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div></div>
+        <div class="pbar ${level}" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div></div>
       <div class="pc-days" aria-label="Days exercised in the last 7 days">${s.last7.map((d) =>
         `<span class="${d.done ? 'on' : ''}"><i></i><small>${d.date.toLocaleDateString(undefined, { weekday: 'narrow' })}</small></span>`).join('')}</div>
       <div class="pc-stats">
@@ -519,15 +519,15 @@ function userDetail(pid, uidv, from = 'home', editing = false) {
   show(`
     ${backHeader('Patient')}
     <div class="profile-head">
-      <label class="photo-edit" aria-label="Change photo">${avatarOf(u, 'xl')}<span class="cam">${icon('camera', 18)}</span>
+      <label class="photo-edit" aria-label="Change photo">${avatarOf(u, 'xl')}<span class="cam">${icon('camera', 14)}</span>
         <input id="photo" type="file" accept="image/*" hidden></label>
       <div><b>${esc(u.name)}</b><small>${u.age ? esc(u.age) + ' years old' : 'Age not set'}</small></div>
       <div class="code-chip"><small>Code</small><b>${esc(u.code)}</b></div>
     </div>
     <div class="tiles">
-      ${tile('Last exercised', ago(s.last), 'green')}
-      ${tile('Plan done, 7 days', s.planPct != null ? s.planPct + '%' : '–', 'cyan')}
-      ${tile('Full-range reps', s.quality != null ? s.quality + '%' : '–', 'orange')}
+      ${tile('Last active', ago(s.last), 'green')}
+      ${tile('Plan, 7 days', s.planPct != null ? s.planPct + '%' : '–', 'cyan')}
+      ${tile('Full range', s.quality != null ? s.quality + '%' : '–', 'orange')}
     </div>
 
     <div class="row between"><h2 class="section-title">Profile</h2>${editing ? '' : '<button class="btn ghost" id="editProfile">Edit</button>'}</div>
@@ -764,7 +764,7 @@ function userApp(uidv, tab = 'home') {
       <div class="tiles">
         ${tile('Workouts this week', s.weekCompleted, 'green')}
         ${tile('Reps this week', s.weekReps, 'cyan')}
-        ${tile('Full-range reps', s.quality != null ? s.quality + '%' : '–', 'orange')}
+        ${tile('Full range', s.quality != null ? s.quality + '%' : '–', 'orange')}
       </div>
       <h2 class="section-title">Recent workouts</h2>
       <div class="list">${rows || '<p class="empty">No workouts yet. Your first one will show here.</p>'}</div>

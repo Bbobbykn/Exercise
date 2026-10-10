@@ -178,17 +178,19 @@ button { font: inherit; cursor: pointer; color: inherit; }
 .day.today i.on { background: #fff; }
 
 /* Profile */
-.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
-.profile-head > div { display: flex; flex-direction: column; flex: 1; }
-.profile-head b { font-size: 1.35rem; font-weight: 500; }
-.code-chip { flex: none !important; align-items: center; background: var(--ink); color: #fff; border-radius: 18px; padding: 6px 14px; }
-.code-chip small { color: #c9c9d2; font-size: 0.75rem; }
-.code-chip b { font-size: 1.4rem; letter-spacing: 0.12em; }
+.profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.profile-head > div { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+.profile-head b { font-size: 1.3rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.profile-head small { color: var(--muted, #6b6b76); font-size: 0.95rem; }
+.profile-head .avatar.xl { width: 72px; height: 72px; font-size: 1.5rem; }
+.code-chip { flex: none !important; align-items: center; justify-content: center; gap: 0 !important; background: var(--ink); color: #fff; border-radius: 14px; padding: 6px 12px; }
+.code-chip small { color: #c9c9d2; font-size: 0.7rem; }
+.code-chip b { font-size: 1.1rem; letter-spacing: 0.1em; }
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .tiles.four { grid-template-columns: 1fr 1fr; margin-top: 16px; }
-.tile { border-radius: var(--r-md); padding: 14px 12px; display: flex; flex-direction: column; justify-content: space-between; min-height: 96px; }
+.tile { border-radius: var(--r-md); padding: 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-height: 84px; min-width: 0; }
 .tile small { color: rgba(17, 17, 20, 0.75); font-size: 0.85rem; line-height: 1.2; }
-.tile b { font-size: 1.45rem; font-weight: 600; line-height: 1.1; margin-top: 8px; }
+.tile b { font-size: 1.3rem; font-weight: 600; line-height: 1.1; }
 .list { margin-top: 12px; display: flex; flex-direction: column; }
 .list-row {
   display: flex; align-items: center; gap: 14px; padding: 16px 2px; text-align: left; width: 100%;
@@ -240,7 +242,7 @@ img.avatar { object-fit: cover; padding: 0; background: var(--line); }
 .photo-pick { flex-direction: row; align-items: center; gap: 14px; cursor: pointer; background: var(--surface); border: 1.5px dashed var(--line); border-radius: var(--r-md); padding: 12px; }
 .photo-pick > span:last-of-type { display: flex; flex-direction: column; }
 .photo-edit { position: relative; cursor: pointer; flex: none; }
-.photo-edit .cam { position: absolute; right: -2px; bottom: -2px; width: 32px; height: 32px; border-radius: 99px; background: var(--ink); color: #fff; display: grid; place-items: center; border: 2px solid #fff; }
+.photo-edit .cam { position: absolute; right: -2px; bottom: -2px; width: 26px; height: 26px; border-radius: 99px; background: var(--ink); color: #fff; display: grid; place-items: center; border: 2px solid #fff; }
 .uc-head { display: flex; justify-content: space-between; align-items: center; }
 .uc-head .pill { align-self: center; }
 
@@ -257,11 +259,11 @@ img.avatar { object-fit: cover; padding: 0; background: var(--line); }
 .pc-name { display: flex; flex-direction: column; min-width: 0; }
 .name-link { background: none; border: 0; padding: 0; text-align: left; font-size: 1.35rem; font-weight: 500; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .pc-bar > span { display: flex; justify-content: space-between; align-items: baseline; }
-.bar { height: 12px; border-radius: 99px; background: rgba(255, 255, 255, 0.6); overflow: hidden; margin-top: 4px; }
-.bar i { display: block; height: 100%; border-radius: 99px; background: var(--ink); }
-.bar.good i { background: #15803d; }
-.bar.mid i { background: #b45309; }
-.bar.low i { background: #dc2626; }
+.pbar { height: 12px; border-radius: 99px; background: rgba(255, 255, 255, 0.6); overflow: hidden; margin-top: 4px; }
+.pbar i { display: block; height: 100%; border-radius: 99px; background: var(--ink); }
+.pbar.good i { background: #15803d; }
+.pbar.mid i { background: #b45309; }
+.pbar.low i { background: #dc2626; }
 .pc-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
 .pc-days span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .pc-days i { width: 22px; height: 22px; border-radius: 99px; border: 2px solid rgba(17, 17, 20, 0.35); }
